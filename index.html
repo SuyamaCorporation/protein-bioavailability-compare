@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Protein Bioavailability Comparator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .bar-fill { transition: width 0.5s ease; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold text-gray-800 mb-2">Protein Bioavailability Comparator</h1>
+  <p class="text-gray-500 mb-6">Compare protein sources by quality, density, and cost efficiency.</p>
+
+  <!-- Controls -->
+  <div class="flex flex-wrap gap-3 mb-6">
+    <div>
+      <label class="text-sm font-medium text-gray-700 mr-2">Sort by:</label>
+      <select id="sortSelect" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" aria-label="Sort criterion">
+        <option value="pdcaas">PDCAAS Score</option>
+        <option value="protein">Protein per 100g</option>
+        <option value="cost">Cost Efficiency</option>
+      </select>
+    </div>
+    <div class="flex gap-2">
+      <button id="btnAll" onclick="setFilter('all')" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white" aria-label="Show all sources">All</button>
+      <button id="btnAnimal" onclick="setFilter('animal')" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 text-gray-700" aria-label="Show animal sources">Animal</button>
+      <button id="btnPlant" onclick="setFilter('plant')" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 text-gray-700" aria-label="Show plant sources">Plant</button>
+    </div>
+    <button onclick="resetData()" class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-100 text-red-700 ml-auto" aria-label="Reset to default data">Reset Data</button>
+  </div>
+
+  <!-- Legend -->
+  <div class="flex gap-4 mb-4 text-xs text-gray-500">
+    <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span> Animal</span>
+    <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Plant</span>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-white rounded-xl shadow overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-100 text-gray-600 uppercase text-xs">
+        <tr>
+          <th class="px-4 py-3 text-left">Source</th>
+          <th class="px-4 py-3 text-left">Type</th>
+          <th class="px-4 py-3 text-left">PDCAAS (0–1)</th>
+          <th class="px-4 py-3 text-left">Protein/100g</th>
+          <th class="px-4 py-3 text-left">Cost/100g protein ($)</th>
+          <th class="px-4 py-3 text-left">Efficiency</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Cost edit modal -->
+  <div id="editModal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-xl p-6 w-80 shadow-xl">
+      <h2 class="text-lg font-semibold mb-4" id="editModalTitle">Edit Cost</h2>
+      <label class="block text-sm text-gray-600 mb-1">Cost per 100g protein ($)</label>
+      <input id="editCostInput" type="number" min="0" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-green-400" aria-label="Cost per 100g protein">
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm" aria-label="Cancel edit">Cancel</button>
+        <button onclick="saveEdit()" class="px-4 py-2 rounded-lg bg-green-600 text-white text-sm" aria-label="Save cost edit">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bar chart section -->
+  <div class="mt-8 bg-white rounded-xl shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">Visual Comparison</h2>
+    <div class="mb-4">
+      <label class="text-sm font-medium text-gray-700 mr-2">Chart metric:</label>
+      <select id="chartMetric" onchange="renderChart()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" aria-label="Chart metric">
+        <option value="pdcaas">PDCAAS Score</option>
+        <option value="protein">Protein per 100g</option>
+      </select>
+    </div>
+    <div id="chartArea" class="space-y-2"></div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_DATA = [
+  { name: "Whey Protein", type: "animal", pdcaas: 1.00, protein: 80, cost: 3.50 },
+  { name: "Egg White", type: "animal", pdcaas: 1.00, protein: 11, cost: 4.20 },
+  { name: "Chicken Breast", type: "animal", pdcaas: 0.92, protein: 31, cost: 2.80 },
+  { name: "Beef (lean)", type: "animal", pdcaas: 0.92, protein: 26, cost: 4.00 },
+  { name: "Canned Tuna", type: "animal", pdcaas: 0.92, protein: 25, cost: 1.50 },
+  { name: "Cottage Cheese", type: "animal", pdcaas: 1.00, protein: 11, cost: 2.60 },
+  { name: "Greek Yogurt", type: "animal", pdcaas: 1.00, protein: 10, cost: 3.00 },
+  { name: "Milk (whole)", type: "animal", pdcaas: 1.00, protein: 3.4, cost: 2.40 },
+  { name: "Salmon", type: "animal", pdcaas: 0.96, protein: 25, cost: 5.50 },
+  { name: "Quinoa", type: "plant", pdcaas: 0.76, protein: 14, cost: 4.50 },
+  { name: "Tofu", type: "plant", pdcaas: 0.78, protein: 8, cost: 2.20 },
+  { name: "Edamame", type: "plant", pdcaas: 0.68, protein: 11, cost: 3.00 },
+  { name: "Black Beans", type: "plant", pdcaas: 0.53, protein: 9, cost: 1.20 },
+  { name: "Lentils", type: "plant", pdcaas: 0.52, protein: 9, cost: 0.90 },
+  { name: "Pea Protein", type: "plant", pdcaas: 0.69, protein: 80, cost: 2.80 },
+  { name: "Hemp Seeds", type: "plant", pdcaas: 0.63, protein: 31, cost: 5.00 },
+  { name: "Tempeh", type: "plant", pdcaas: 0.71, protein: 19, cost: 3.50 },
+];
+
+const LS_KEY = 'pbc_data';
+let data = [];
+let currentFilter = 'all';
+let editIndex = -1;
+
+function loadData() {
+  try {
+    const saved = localStorage.getItem(LS_KEY);
+    data = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+  } catch(e) {
+    data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+}
+
+function saveData() {
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+}
+
+function resetData() {
+  data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  saveData();
+  render();
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  ['btnAll','btnAnimal','btnPlant'].forEach(id => {
+    document.getElementById(id).className = 'px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 text-gray-700';
+  });
+  const map = { all: 'btnAll', animal: 'btnAnimal', plant: 'btnPlant' };
+  document.getElementById(map[f]).className = 'px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white';
+  render();
+}
+
+function getFiltered() {
+  let filtered = currentFilter === 'all' ? [...data] : data.filter(d => d.type === currentFilter);
+  const sort = document.getElementById('sortSelect').value;
+  filtered.sort((a, b) => {
+    if (sort === 'pdcaas') return b.pdcaas - a.pdcaas;
+    if (sort === 'protein') return b.protein - a.protein;
+    if (sort === 'cost') return a.cost - b.cost;
+    return 0;
+  });
+  return filtered;
+}
+
+function openEditModal(originalIndex) {
+  editIndex = originalIndex;
+  const item = data[originalIndex];
+  document.getElementById('editModalTitle').textContent = 'Edit Cost: ' + item.name;
+  document.getElementById('editCostInput').value = item.cost;
+  document.getElementById('editModal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.add('hidden');
+  editIndex = -1;
+}
+
+function saveEdit() {
+  if (editIndex < 0) return;
+  const val = parseFloat(document.getElementById('editCostInput').value);
+  if (!isNaN(val) && val >= 0) {
+    data[editIndex].cost = val;
+    saveData();
+    render();
+  }
+  closeModal();
+}
+
+function scoreBar(value, max, color) {
+  const pct = Math.min(100, (value / max) * 100).toFixed(1);
+  return `<div class="w-full bg-gray-100 rounded-full h-3"><div class="bar-fill ${color} h-3 rounded-full" style="width:${pct}%"></div></div>`;
+}
+
+function renderTable() {
+  const filtered = getFiltered();
+  const body = document.getElementById('tableBody');
+  body.innerHTML = '';
+  const maxProtein = Math.max(...data.map(d => d.protein));
+  const maxCost = Math.max(...data.map(d => d.cost));
+
+  filtered.forEach(item => {
+    const originalIndex = data.indexOf(item);
+    const typeColor = item.type === 'animal' ? 'text-blue-600 bg-blue-50' : 'text-emerald-600 bg-emerald-50';
+    const tr = document.createElement('tr');
+    tr.className = 'border-t border-gray-100 hover:bg-gray-50';
+
+    const tdName = document.createElement('td');
+    tdName.className = 'px-4 py-3 font-medium text-gray-800';
+    tdName.textContent = item.name;
+
+    const tdType = document.createElement('td');
+    tdType.className = 'px-4 py-3';
+    const typeBadge = document.createElement('span');
+    typeBadge.className = `text-xs px-2 py-0.5 rounded-full font-medium ${typeColor}`;
+    typeBadge.textContent = item.type;
+    tdType.appendChild(typeBadge);
+
+    const tdPdcaas = document.createElement('td');
+    tdPdcaas.className = 'px-4 py-3';
+    const pdcaasWrap = document.createElement('div');
+    pdcaasWrap.className = 'flex items-center gap-2';
+    const pdcaasVal = document.createElement('span');
+    pdcaasVal.className = 'text-xs w-8 text-right text-gray-600';
+    pdcaasVal.textContent = item.pdcaas.toFixed(2);
+    const pdcaasBarWrap = document.createElement('div');
+    pdcaasBarWrap.className = 'w-24 bg-gray-100 rounded-full h-3';
+    const pdcaasBar = document.createElement('div');
+    pdcaasBar.className = 'bar-fill bg-indigo-500 h-3 rounded-full';
+    pdcaasBar.style.width = (item.pdcaas * 100) + '%';
+    pdcaasBarWrap.appendChild(pdcaasBar);
+    pdcaasWrap.appendChild(pdcaasVal);
+    pdcaasWrap.appendChild(pdcaasBarWrap);
+    tdPdcaas.appendChild(pdcaasWrap);
+
+    const tdProtein = document.createElement('td');
+    tdProtein.className = 'px-4 py-3';
+    const protWrap = document.createElement('div');
+    protWrap.className = 'flex items-center gap-2';
+    const protVal = document.createElement('span');
+    protVal.className = 'text-xs w-8 text-right text-gray-600';
+    protVal.textContent = item.protein + 'g';
+    const protBarWrap = document.createElement('div');
+    protBarWrap.className = 'w-24 bg-gray-100 rounded-full h-3';
+    const protBar = document.createElement('div');
+    protBar.className = 'bar-fill bg-green-500 h-3 rounded-full';
+    protBar.style.width = ((item.protein / maxProtein) * 100) + '%';
+    protBarWrap.appendChild(protBar);
+    protWrap.appendChild(protVal);
+    protWrap.appendChild(protBarWrap);
+    tdProtein.appendChild(protWrap);
+
+    const tdCost = document.createElement('td');
+    tdCost.className = 'px-4 py-3';
+    const costWrap = document.createElement('div');
+    costWrap.className = 'flex items-center gap-2';
+    const costVal = document.createElement('span');
+    costVal.className = 'text-xs w-8 text-right text-gray-600';
+    costVal.textContent = '$' + item.cost.toFixed(2);
+    const editBtn = document.createElement('button');
+    editBtn.className = 'text-xs text-blue-500 hover:underline';
+    editBtn.textContent = 'edit';
+    editBtn.setAttribute('aria-label', 'Edit cost for ' + item.name);
+    editBtn.onclick = () => openEditModal(originalIndex);
+    costWrap.appendChild(costVal);
+    costWrap.appendChild(editBtn);
+    tdCost.appendChild(costWrap);
+
+    const tdEff = document.createElement('td');
+    tdEff.className = 'px-4 py-3';
+    const eff = item.cost === 0 ? 'N/A' : '$' + (item.cost / item.pdcaas).toFixed(2);
+    const effSpan = document.createElement('span');
+    effSpan.className = 'text-xs text-gray-500';
+    effSpan.textContent = eff === 'N/A' ? eff : eff + '/quality';
+    tdEff.appendChild(effSpan);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdType);
+    tr.appendChild(tdPdcaas);
+    tr.appendChild(tdProtein);
+    tr.appendChild(tdCost);
+    tr.appendChild(tdEff);
+    body.appendChild(tr);
+  });
+}
+
+function renderChart() {
+  const metric = document.getElementById('chartMetric').value;
+  const filtered = getFiltered();
+  const max = metric === 'pdcaas' ? 1 : Math.max(...filtered.map(d => d.protein));
+  const chartArea = document.getElementById('chartArea');
+  chartArea.innerHTML = '';
+
+  filtered.forEach(item => {
+    const pct = ((metric === 'pdcaas' ? item.pdcaas : item.protein) / max * 100).toFixed(1);
+    const barColor = item.type === 'animal' ? 'bg-blue-400' : 'bg-emerald-400';
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2';
+
+    const label = document.createElement('div');
+    label.className = 'w-36 text-xs text-gray-700 truncate text-right';
+    label.textContent = item.name;
+
+    const barWrap = document.createElement('div');
+    barWrap.className = 'flex-1 bg-gray-100 rounded-full h-5 relative';
+
+    const bar = document.createElement('div');
+    bar.className = `bar-fill ${barColor} h-5 rounded-full flex items-center justify-end pr-2`;
+    bar.style.width = pct + '%';
+    bar.style.minWidth = '2rem';
+
+    const valSpan = document.createElement('span');
+    valSpan.className = 'text-xs text-white font-medium';
+    valSpan.textContent = metric === 'pdcaas' ? item.pdcaas.toFixed(2) : item.protein + 'g';
+    bar.appendChild(valSpan);
+    barWrap.appendChild(bar);
+
+    row.appendChild(label);
+    row.appendChild(barWrap);
+    chartArea.appendChild(row);
+  });
+}
+
+function render() {
+  renderTable();
+  renderChart();
+}
+
+document.getElementById('sortSelect').addEventListener('change', render);
+loadData();
+render();
+</script>
+</body>
+</html>
